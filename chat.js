@@ -1,63 +1,49 @@
 const { generateForecast2026 } = require('../src/forecast_engine');
 const { handleAIChatQuestion } = require('../src/ai_assistant');
+const dump = require('../src/embedded_dataset');
 
 let memoryCache = null;
 
 function getCachedData() {
   if (memoryCache) return memoryCache;
 
-  try {
-    const rawData = require('../data/black_friday_analytics.json');
-    if (rawData && rawData.rawHistorical) {
-      memoryCache = rawData;
-      return memoryCache;
-    }
-  } catch (e) {
-    console.warn('Fallback to real_bq_dump.json:', e.message);
-  }
+  const historicalData = {
+    dailyComparison: dump.dailyRows.map(r => ({
+      year: r.year,
+      day_of_week_num: r.day_of_week_num,
+      day_name: r.day_name,
+      full_date: r.full_date.value || r.full_date,
+      total_clicks: Number(r.total_clicks || 0),
+      total_sales: Number(r.total_sales || 0),
+      total_sales_val: Number(r.total_sales_val || 0),
+      total_commission_val: Number(r.total_commission_val || 0)
+    })),
+    hourlyHeatmap: dump.hourlyRows.map(r => ({
+      hour_of_day: Number(r.hour_of_day),
+      year: Number(r.year),
+      date: r.date.value || r.date,
+      sales_count: Number(r.sales_count || 0),
+      total_commission: Number(r.total_commission || 0),
+      total_order_value: Number(r.total_order_value || 0)
+    })),
+    nicheBreakdown: dump.nicheRows.map(r => ({
+      niche_category: r.niche_category,
+      year: Number(r.year),
+      total_clicks: Number(r.total_clicks || 0),
+      total_sales: Number(r.total_sales || 0),
+      total_sales_val: Number(r.total_sales_val || 0),
+      total_commissions: Number(r.total_commissions || 0)
+    }))
+  };
 
-  try {
-    const dump = require('../data/real_bq_dump.json');
-    const historicalData = {
-      dailyComparison: dump.dailyRows.map(r => ({
-        year: r.year,
-        day_of_week_num: r.day_of_week_num,
-        day_name: r.day_name,
-        full_date: r.full_date.value || r.full_date,
-        total_clicks: Number(r.total_clicks || 0),
-        total_sales: Number(r.total_sales || 0),
-        total_sales_val: Number(r.total_sales_val || 0),
-        total_commission_val: Number(r.total_commission_val || 0)
-      })),
-      hourlyHeatmap: dump.hourlyRows.map(r => ({
-        hour_of_day: Number(r.hour_of_day),
-        year: Number(r.year),
-        date: r.date.value || r.date,
-        sales_count: Number(r.sales_count || 0),
-        total_commission: Number(r.total_commission || 0),
-        total_order_value: Number(r.total_order_value || 0)
-      })),
-      nicheBreakdown: dump.nicheRows.map(r => ({
-        niche_category: r.niche_category,
-        year: Number(r.year),
-        total_clicks: Number(r.total_clicks || 0),
-        total_sales: Number(r.total_sales || 0),
-        total_sales_val: Number(r.total_sales_val || 0),
-        total_commissions: Number(r.total_commissions || 0)
-      }))
-    };
-
-    const forecast2026 = generateForecast2026(historicalData, 1.15);
-    memoryCache = {
-      dataSource: 'BigQuery Real Production Data (performant-bi-and-analytics, EU)',
-      lastUpdated: new Date().toISOString(),
-      rawHistorical: historicalData,
-      forecast2026
-    };
-    return memoryCache;
-  } catch (err) {
-    throw new Error('Dataset file not found in Vercel bundle: ' + err.message);
-  }
+  const forecast2026 = generateForecast2026(historicalData, 1.15);
+  memoryCache = {
+    dataSource: 'BigQuery Real Production Data (performant-bi-and-analytics, EU)',
+    lastUpdated: new Date().toISOString(),
+    rawHistorical: historicalData,
+    forecast2026
+  };
+  return memoryCache;
 }
 
 module.exports = (req, res) => {
