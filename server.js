@@ -1,6 +1,6 @@
 /**
  * Express Server for Black Friday 2026 Predictions Landing Page
- * Designed for both Local execution and Vercel Serverless Function deployment
+ * Full Root-level compatibility for Vercel & Local Node.js
  */
 
 const express = require('express');
@@ -8,37 +8,77 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-const { extractAndCacheData, CACHE_FILE } = require('./scripts/extract_bq_data');
 const { generateForecast2026 } = require('./src/forecast_engine');
 const { handleAIChatQuestion } = require('./src/ai_assistant');
+
+// Import embedded dataset directly from root
+let dump = null;
+try {
+  dump = require('./embedded_dataset.js');
+} catch (e) {
+  try {
+    dump = require('./src/embedded_dataset.js');
+  } catch (err) {
+    console.error('Could not load embedded dataset:', err.message);
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
-// Safe in-memory dataset loader
+// Serve static assets from both root and public
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
+
+// Safe dataset formatter
 let memoryCache = null;
 
 function getCachedData() {
-  if (memoryCache) {
-    return memoryCache;
+  if (memoryCache) return memoryCache;
+
+  if (!dump) {
+    throw new Error('Embedded BigQuery dataset not found');
   }
 
-  try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
-      memoryCache = JSON.parse(raw);
-      return memoryCache;
-    }
-  } catch (e) {
-    console.warn('Could not read cache file, fallback to extractAndCacheData:', e.message);
-  }
+  const historicalData = {
+    dailyComparison: (dump.dailyRows || []).map(r => ({
+      year: r.year,
+      day_of_week_num: r.day_of_week_num,
+      day_name: r.day_name,
+      full_date: r.full_date.value || r.full_date,
+      total_clicks: Number(r.total_clicks || 0),
+      total_sales: Number(r.total_sales || 0),
+      total_sales_val: Number(r.total_sales_val || 0),
+      total_commission_val: Number(r.total_commission_val || 0)
+    })),
+    hourlyHeatmap: (dump.hourlyRows || []).map(r => ({
+      hour_of_day: Number(r.hour_of_day),
+      year: Number(r.year),
+      date: r.date.value || r.date,
+      sales_count: Number(r.sales_count || 0),
+      total_commission: Number(r.total_commission || 0),
+      total_order_value: Number(r.total_order_value || 0)
+    })),
+    nicheBreakdown: (dump.nicheRows || []).map(r => ({
+      niche_category: r.niche_category,
+      year: Number(r.year),
+      total_clicks: Number(r.total_clicks || 0),
+      total_sales: Number(r.total_sales || 0),
+      total_sales_val: Number(r.total_sales_val || 0),
+      total_commissions: Number(r.total_commissions || 0)
+    }))
+  };
 
-  // Fallback extraction from real_bq_dump.json
-  memoryCache = extractAndCacheData();
+  const forecast2026 = generateForecast2026(historicalData, 1.15);
+  memoryCache = {
+    dataSource: 'BigQuery Real Production Data (performant-bi-and-analytics, EU)',
+    lastUpdated: new Date().toISOString(),
+    rawHistorical: historicalData,
+    forecast2026
+  };
   return memoryCache;
 }
 
@@ -49,7 +89,6 @@ app.get('/api/analytics', (req, res) => {
     const selectedNiche = req.query.niche || 'ALL';
     const cache = getCachedData();
 
-    // Re-calculate forecast with dynamic growth modifier and selected niche filter
     const dynamicForecast = generateForecast2026(cache.rawHistorical, growthModifier, selectedNiche);
 
     res.json({
@@ -66,7 +105,7 @@ app.get('/api/analytics', (req, res) => {
 
 app.post('/api/chat', (req, res) => {
   try {
-    const { question, growth, niche } = req.body;
+    const { question, growth, niche } = req.body || {};
     const growthModifier = parseFloat(growth) || 1.15;
     const selectedNiche = niche || 'ALL';
     const cache = getCachedData();
@@ -85,29 +124,21 @@ app.post('/api/chat', (req, res) => {
   }
 });
 
-app.post('/api/refresh-bq', async (req, res) => {
-  try {
-    console.log('Manual refresh requested...');
-    const updated = await extractAndCacheData();
-    memoryCache = updated;
-    res.json({
-      success: true,
-      message: 'Dataset refreshed successfully from BigQuery!',
-      dataSource: updated.dataSource,
-      lastUpdated: updated.lastUpdated
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Explicit root route serving index.html
+// Explicit root route serving index.html from root or public
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const rootIndex = path.join(__dirname, 'index.html');
+  const publicIndex = path.join(__dirname, 'public', 'index.html');
+
+  if (fs.existsSync(rootIndex)) {
+    return res.sendFile(rootIndex);
+  } else if (fs.existsSync(publicIndex)) {
+    return res.sendFile(publicIndex);
+  }
+  res.status(404).send('index.html not found');
 });
 
-// Start Server locally if not running on Vercel
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+// Start Server locally if run directly
+if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`====================================================`);
     console.log(`🔥 Black Friday 2026 Prediction Dashboard Running!`);
@@ -116,5 +147,5 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   });
 }
 
-// Export Express app for Vercel Serverless Handler
+// Export Express app for Vercel
 module.exports = app;
