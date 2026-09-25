@@ -1,6 +1,6 @@
 /**
  * Express Server for Black Friday 2026 Predictions Landing Page
- * Full Root-level compatibility for Vercel & Local Node.js
+ * Full Root-level & Subfolder fallback compatibility for Vercel Serverless Functions
  */
 
 const express = require('express');
@@ -8,10 +8,30 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-const { generateForecast2026 } = require('./src/forecast_engine');
-const { handleAIChatQuestion } = require('./src/ai_assistant');
+// Safe imports with fallback paths (root vs src/)
+let generateForecast2026 = null;
+try {
+  generateForecast2026 = require('./src/forecast_engine').generateForecast2026;
+} catch (e) {
+  try {
+    generateForecast2026 = require('./forecast_engine').generateForecast2026;
+  } catch (err) {
+    console.error('Could not load forecast_engine:', err.message);
+  }
+}
 
-// Import embedded dataset directly from root
+let handleAIChatQuestion = null;
+try {
+  handleAIChatQuestion = require('./src/ai_assistant').handleAIChatQuestion;
+} catch (e) {
+  try {
+    handleAIChatQuestion = require('./ai_assistant').handleAIChatQuestion;
+  } catch (err) {
+    console.error('Could not load ai_assistant:', err.message);
+  }
+}
+
+// Import embedded dataset directly from root or src
 let dump = null;
 try {
   dump = require('./embedded_dataset.js');
@@ -48,7 +68,7 @@ function getCachedData() {
       year: r.year,
       day_of_week_num: r.day_of_week_num,
       day_name: r.day_name,
-      full_date: r.full_date.value || r.full_date,
+      full_date: r.full_date ? (r.full_date.value || r.full_date) : '',
       total_clicks: Number(r.total_clicks || 0),
       total_sales: Number(r.total_sales || 0),
       total_sales_val: Number(r.total_sales_val || 0),
@@ -57,7 +77,7 @@ function getCachedData() {
     hourlyHeatmap: (dump.hourlyRows || []).map(r => ({
       hour_of_day: Number(r.hour_of_day),
       year: Number(r.year),
-      date: r.date.value || r.date,
+      date: r.date ? (r.date.value || r.date) : '',
       sales_count: Number(r.sales_count || 0),
       total_commission: Number(r.total_commission || 0),
       total_order_value: Number(r.total_order_value || 0)
@@ -71,6 +91,10 @@ function getCachedData() {
       total_commissions: Number(r.total_commissions || 0)
     }))
   };
+
+  if (!generateForecast2026) {
+    throw new Error('generateForecast2026 engine function is missing');
+  }
 
   const forecast2026 = generateForecast2026(historicalData, 1.15);
   memoryCache = {
@@ -110,6 +134,10 @@ app.post('/api/chat', (req, res) => {
     const selectedNiche = niche || 'ALL';
     const cache = getCachedData();
     const dynamicForecast = generateForecast2026(cache.rawHistorical, growthModifier, selectedNiche);
+
+    if (!handleAIChatQuestion) {
+      return res.json({ success: true, reply: 'Asistentul AI este în mentenanță.' });
+    }
 
     const response = handleAIChatQuestion(question || '', dynamicForecast);
 
