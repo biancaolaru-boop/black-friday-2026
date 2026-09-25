@@ -1,0 +1,26 @@
+{
+  "name": "ai-hackathon-special-black-friday",
+  "version": "1.0.0",
+  "description": "Interactive Black Friday 2026 Prediction Landing Page based on 2024 and 2025 BigQuery Analytics",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "extract": "node scripts/extract_bq_data.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "black-friday",
+    "bigquery",
+    "forecast",
+    "analytics",
+    "landing-page"
+  ],
+  "author": "Antigravity AI Assistant",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.9.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
