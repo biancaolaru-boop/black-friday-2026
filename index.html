@@ -472,6 +472,658 @@
     </div>
   </div>
 
-  <script src="/js/dashboard.js?v=1.2"></script>
+  <script>
+/**
+ * Dashboard Logic for Black Friday 2026 Prediction Landing Page
+ */
+
+let dailyChartInstance = null;
+let hourlyChartInstance = null;
+let nicheChartInstance = null;
+
+let currentAnalyticsData = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize Lucide icons
+  lucide.createIcons();
+
+  // Start Countdown Timer
+  startCountdownTimer();
+
+  // Load Initial Analytics
+  loadAnalyticsData(1.15);
+
+  // Growth Slider Event Listener
+  const slider = document.getElementById('growthSlider');
+  if (slider) {
+    slider.addEventListener('input', (e) => {
+      const growthVal = parseFloat(e.target.value);
+      const percentage = Math.round((growthVal - 1) * 100);
+      let label = `+${percentage}% (Moderat)`;
+      if (growthVal <= 1.05) label = `+${percentage}% (Conservator)`;
+      else if (growthVal >= 1.30) label = `+${percentage}% (Agresiv)`;
+
+      document.getElementById('growthSliderValue').innerText = label;
+      const nicheVal = document.getElementById('nicheSelect')?.value || 'ALL';
+      loadAnalyticsData(growthVal, nicheVal);
+    });
+  }
+
+  // Niche Select Event Listener
+  const nicheSelect = document.getElementById('nicheSelect');
+  if (nicheSelect) {
+    nicheSelect.addEventListener('change', (e) => {
+      const nicheVal = e.target.value;
+      const growthVal = parseFloat(document.getElementById('growthSlider')?.value) || 1.15;
+      loadAnalyticsData(growthVal, nicheVal);
+    });
+  }
+
+  // Refresh BigQuery Button Listener
+  const refreshBtn = document.getElementById('refreshBqBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add('opacity-50');
+      const originalText = refreshBtn.innerText;
+      refreshBtn.innerText = 'Refreshing BQ...';
+
+      try {
+        const resp = await fetch('/api/refresh-bq', { method: 'POST' });
+        const data = await resp.json();
+        alert(data.message || 'Data refreshed from BigQuery!');
+        const growthVal = parseFloat(document.getElementById('growthSlider')?.value) || 1.15;
+        const nicheVal = document.getElementById('nicheSelect')?.value || 'ALL';
+        loadAnalyticsData(growthVal, nicheVal);
+      } catch (err) {
+        alert('Refresh failed: ' + err.message);
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('opacity-50');
+        refreshBtn.innerText = originalText;
+      }
+    });
+  }
+});
+
+/**
+ * Fetch Analytics from Backend API
+ */
+async function loadAnalyticsData(growthModifier = 1.15, selectedNiche = 'ALL') {
+  try {
+    const response = await fetch(`/api/analytics?growth=${growthModifier}&niche=${encodeURIComponent(selectedNiche)}`);
+    const json = await response.json();
+
+    if (!json.success) {
+      console.error('API Error:', json.error);
+      return;
+    }
+
+    currentAnalyticsData = json;
+
+    // Update Header Source Label
+    document.getElementById('dataSourceLabel').innerText = json.dataSource;
+
+    const { summaryKPIs, dailySequence, hourlyHeatmap, nicheBreakdown } = json.forecast2026;
+
+    // Render KPIs
+    updateKPIs(summaryKPIs);
+
+    // Render Charts
+    renderDailyChart(dailySequence);
+    renderHourlyChart(hourlyHeatmap);
+    renderNicheChart(nicheBreakdown);
+
+    // Render Strategic Modules 1-5
+    renderStrategicModules(json.forecast2026);
+
+  } catch (err) {
+    console.error('Failed to load analytics:', err);
+  }
+}
+
+/**
+ * Format Numbers to Currency / Romanian Locale
+ */
+function formatRON(val) {
+  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON', maximumFractionDigits: 0 }).format(val);
+}
+
+function formatNumber(val) {
+  return new Intl.NumberFormat('ro-RO').format(val);
+}
+
+/**
+ * Update Summary KPIs
+ */
+function updateKPIs(kpis) {
+  document.getElementById('kpiSales2026').innerText = formatRON(kpis.totalSalesVal2026Forecast);
+  document.getElementById('kpiCommissions2026').innerText = formatRON(kpis.totalCommissions2026Forecast);
+  document.getElementById('kpiSalesCount2026').innerText = formatNumber(kpis.totalSalesCount2026Forecast);
+  document.getElementById('kpiClicks2026').innerText = formatNumber(kpis.totalClicks2026Forecast);
+
+  const growthEl = document.getElementById('kpiGrowthVs2025');
+  if (growthEl) {
+    growthEl.innerText = `+${kpis.projectedGrowth2026Vs2025}% vs 2025`;
+  }
+}
+
+/**
+ * Render Daily YoY Comparison Chart
+ */
+function renderDailyChart(dailyData) {
+  const ctx = document.getElementById('dailyChart').getContext('2d');
+
+  const labels = dailyData.map(d => d.dayName);
+  const sales2024 = dailyData.map(d => d.y2024.salesVal);
+  const sales2025 = dailyData.map(d => d.y2025.salesVal);
+  const sales2026 = dailyData.map(d => d.y2026Forecast.salesVal);
+
+  if (dailyChartInstance) {
+    dailyChartInstance.destroy();
+  }
+
+  dailyChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '2024 (Istoric)',
+          data: sales2024,
+          backgroundColor: 'rgba(234, 179, 8, 0.75)',
+          borderColor: 'rgba(250, 204, 21, 1)',
+          borderWidth: 1.5,
+          borderRadius: 6
+        },
+        {
+          label: '2025 (Istoric)',
+          data: sales2025,
+          backgroundColor: 'rgba(6, 182, 212, 0.7)',
+          borderColor: 'rgba(34, 211, 238, 1)',
+          borderWidth: 1,
+          borderRadius: 6
+        },
+        {
+          label: '2026 (Previziune)',
+          data: sales2026,
+          backgroundColor: 'rgba(120, 57, 238, 0.85)',
+          borderColor: 'rgba(167, 139, 250, 1)',
+          borderWidth: 2,
+          borderRadius: 6
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#e5e7eb', font: { family: 'Onest', size: 11 } }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${formatRON(ctx.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#9ca3af' },
+          grid: { color: 'rgba(255, 255, 255, 0.05)' }
+        },
+        y: {
+          ticks: {
+            color: '#9ca3af',
+            callback: (val) => `${(val / 1000000).toFixed(1)}M RON`
+          },
+          grid: { color: 'rgba(255, 255, 255, 0.05)' }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Render Hourly Distribution Chart
+ */
+function renderHourlyChart(hourlyData) {
+  const ctx = document.getElementById('hourlyChart').getContext('2d');
+
+  const labels = hourlyData.map(h => h.hour);
+  const val2024 = hourlyData.map(h => h.salesVal2024);
+  const val2025 = hourlyData.map(h => h.salesVal2025);
+  const val2026 = hourlyData.map(h => h.salesVal2026Forecast);
+
+  if (hourlyChartInstance) {
+    hourlyChartInstance.destroy();
+  }
+
+  hourlyChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '2024 Ore',
+          data: val2024,
+          borderColor: '#eab308',
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: 1
+        },
+        {
+          label: '2025 Ore',
+          data: val2025,
+          borderColor: '#06b6d4',
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: 0
+        },
+        {
+          label: '2026 Ore (Previziune)',
+          data: val2026,
+          borderColor: '#875bf7',
+          backgroundColor: 'rgba(135, 91, 247, 0.12)',
+          borderWidth: 3,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 3,
+          pointBackgroundColor: '#a78bfa'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#e5e7eb', font: { family: 'Onest' } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${formatRON(ctx.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+        y: {
+          ticks: {
+            color: '#9ca3af',
+            callback: (val) => {
+              if (val >= 1000000) return `${(val / 1000000).toFixed(2)}M RON`;
+              if (val >= 1000) return `${(val / 1000).toFixed(0)}k RON`;
+              return `${val} RON`;
+            }
+          },
+          grid: { color: 'rgba(255, 255, 255, 0.05)' }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Render Niche Breakdown Pie / Doughnut Chart
+ */
+function renderNicheChart(nicheData) {
+  const ctx = document.getElementById('nicheChart').getContext('2d');
+
+  const totalSum = nicheData.reduce((acc, n) => acc + (n.y2026ForecastVal || 0), 0) || 1;
+  const labels = nicheData.map(n => {
+    const pct = ((n.y2026ForecastVal / totalSum) * 100).toFixed(1);
+    return `${n.category} (${pct}%)`;
+  });
+  const dataVals = nicheData.map(n => n.y2026ForecastVal);
+
+  if (nicheChartInstance) {
+    nicheChartInstance.destroy();
+  }
+
+  // Register datalabels plugin if available
+  const pluginsList = typeof ChartDataLabels !== 'undefined' ? [ChartDataLabels] : [];
+
+  nicheChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    plugins: pluginsList,
+    data: {
+      labels,
+      datasets: [
+        {
+          data: dataVals,
+          backgroundColor: [
+            '#ef4444',
+            '#f59e0b',
+            '#06b6d4',
+            '#8b5cf6',
+            '#10b981',
+            '#ec4899',
+            '#3b82f6',
+            '#14b8a6',
+            '#f97316',
+            '#a855f7'
+          ],
+          borderWidth: 2,
+          borderColor: '#111827'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: '#e5e7eb', font: { family: 'Onest', size: 10 }, boxWidth: 12 }
+        },
+        datalabels: {
+          color: '#ffffff',
+          font: { weight: 'bold', size: 11, family: 'Onest' },
+          formatter: (value) => {
+            const pct = ((value / totalSum) * 100).toFixed(1);
+            return pct >= 3.0 ? `${pct}%` : '';
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.raw;
+              const pct = ((val / totalSum) * 100).toFixed(1);
+              return ` ${ctx.label}: ${formatRON(val)} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Black Friday 2026 Countdown Timer
+ * Target: Nov 2, 2026 00:00:00
+ */
+function startCountdownTimer() {
+  const targetDate = new Date('2026-11-06T00:00:00').getTime();
+
+  function updateTimer() {
+    const now = new Date().getTime();
+    const distance = targetDate - now;
+
+    if (distance <= 0) {
+      document.getElementById('cdDays').innerText = '00';
+      document.getElementById('cdHours').innerText = '00';
+      document.getElementById('cdMins').innerText = '00';
+      document.getElementById('cdSecs').innerText = '00';
+      return;
+    }
+
+    const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+    document.getElementById('cdDays').innerText = String(days).padStart(2, '0');
+    document.getElementById('cdHours').innerText = String(hours).padStart(2, '0');
+    document.getElementById('cdMins').innerText = String(minutes).padStart(2, '0');
+    document.getElementById('cdSecs').innerText = String(seconds).padStart(2, '0');
+  }
+
+  updateTimer();
+  setInterval(updateTimer, 1000);
+}
+
+/**
+ * Render Strategic Prediction Modules 1-5
+ */
+function renderStrategicModules(forecast) {
+  // Module 1: Device Mix
+  const devContainer = document.getElementById('deviceMixContainer');
+  if (devContainer && forecast.deviceMix) {
+    const mobileObj = forecast.deviceMix.find(d => d.device.includes('Mobile'));
+    const deviceBadge = document.getElementById('deviceBadge');
+    if (deviceBadge && mobileObj) {
+      deviceBadge.innerText = `${mobileObj.percentage}% Mobile`;
+    }
+
+    devContainer.innerHTML = forecast.deviceMix.map(d => `
+      <div class="space-y-1">
+        <div class="flex justify-between text-xs font-semibold text-gray-300">
+          <span>${d.icon} ${d.device}</span>
+          <span class="text-cyan-400 font-mono">${d.percentage}% (${formatRON(d.salesVal)})</span>
+        </div>
+        <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+          <div class="bg-cyan-500 h-full rounded-full" style="width: ${d.percentage}%"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Module 2: AOV by Category
+  const aovContainer = document.getElementById('aovContainer');
+  if (aovContainer && forecast.aovByCategory) {
+    const selectedNicheVal = forecast.forecastMeta?.selectedNiche || 'ALL';
+    aovContainer.innerHTML = forecast.aovByCategory.map(a => {
+      const isSelected = selectedNicheVal !== 'ALL' && (
+        a.category.toLowerCase().includes(selectedNicheVal.toLowerCase()) ||
+        selectedNicheVal.toLowerCase().includes(a.category.toLowerCase().split(' ')[0])
+      );
+      const borderClass = isSelected ? 'border-amber-400 bg-amber-950/40 ring-2 ring-amber-500/50 scale-105 shadow-lg shadow-amber-500/10' : 'border-gray-800 bg-gray-900/90';
+      return `
+        <div class="${borderClass} border p-2.5 rounded-lg text-center space-y-0.5 relative transition-all">
+          ${isSelected ? '<span class="absolute -top-2 left-1/2 -translate-x-1/2 bg-amber-500 text-gray-950 text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase">Selectat</span>' : ''}
+          <div class="text-[10px] text-gray-300 truncate ${isSelected ? 'font-bold text-amber-300' : ''}" title="${a.category}">${a.category}</div>
+          <div class="text-sm font-extrabold text-amber-400 font-mono">${a.aovRON} RON</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Module 3: Financial Health
+  const finContainer = document.getElementById('financialHealthContainer');
+  if (finContainer && forecast.financialHealth) {
+    const fh = forecast.financialHealth;
+    finContainer.innerHTML = `
+      <div class="space-y-2">
+        <div class="flex justify-between text-xs">
+          <span class="text-emerald-400 font-bold">Comenzi Aprobate (${fh.approvedRatePct}%)</span>
+          <span class="text-red-400 font-bold">Retur / Anulate (${fh.canceledRatePct}%)</span>
+        </div>
+        <div class="w-full bg-gray-800 h-3 rounded-full overflow-hidden flex">
+          <div class="bg-emerald-500 h-full" style="width: ${fh.approvedRatePct}%"></div>
+          <div class="bg-red-500 h-full" style="width: ${fh.canceledRatePct}%"></div>
+        </div>
+        <div class="flex justify-between text-[11px] text-gray-400 pt-1 font-mono">
+          <span>Aprobat: ${formatRON(fh.approvedSalesVal)}</span>
+          <span>Stornat: ${formatRON(fh.canceledSalesVal)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Module 4: Publisher Traffic Mix
+  const pubContainer = document.getElementById('publisherMixContainer');
+  if (pubContainer && forecast.publisherMix) {
+    pubContainer.innerHTML = forecast.publisherMix.map(p => `
+      <div class="space-y-1">
+        <div class="flex justify-between text-xs font-semibold text-gray-300">
+          <span>${p.type}</span>
+          <span class="text-red-400 font-mono">${p.percentage}% (${formatRON(p.salesVal)})</span>
+        </div>
+        <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+          <div class="bg-red-500 h-full rounded-full" style="width: ${p.percentage}%"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Module 5: Voucher & Promo Code Penetration
+  const vouchContainer = document.getElementById('voucherContainer');
+  if (vouchContainer && forecast.voucherStats) {
+    const vs = forecast.voucherStats;
+    vouchContainer.innerHTML = `
+      <div class="space-y-3">
+        <div class="space-y-1">
+          <div class="flex justify-between text-xs font-semibold text-gray-300">
+            <span>🎟️ Cu Voucher / Cupon</span>
+            <span class="text-purple-400 font-mono">${vs.voucherOrdersPct}% (${vs.voucherOrdersCount.toLocaleString()} comenzi)</span>
+          </div>
+          <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+            <div class="bg-purple-500 h-full rounded-full" style="width: ${vs.voucherOrdersPct}%"></div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="flex justify-between text-xs font-semibold text-gray-300">
+            <span>🏷️ Discount Direct / Fără Cod</span>
+            <span class="text-gray-400 font-mono">${vs.directDiscountOrdersPct}% (${vs.directDiscountOrdersCount.toLocaleString()} comenzi)</span>
+          </div>
+          <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+            <div class="bg-gray-600 h-full rounded-full" style="width: ${vs.directDiscountOrdersPct}%"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+/**
+ * BlackBear AI Strategy Assistant UI Logic
+ */
+function initAIChatWidget() {
+  const toggleBtn = document.getElementById('aiChatToggle');
+  const closeBtn = document.getElementById('aiChatClose');
+  const modal = document.getElementById('aiChatModal');
+  const form = document.getElementById('aiChatForm');
+  const input = document.getElementById('aiChatInput');
+  const messagesContainer = document.getElementById('aiChatMessages');
+  const quickPills = document.querySelectorAll('.quick-pill');
+
+  if (!toggleBtn || !modal || !form) return;
+
+  // Toggle modal open/close
+  toggleBtn.addEventListener('click', () => {
+    modal.classList.toggle('hidden');
+    if (!modal.classList.contains('hidden')) {
+      input.focus();
+    }
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    modal.classList.add('hidden');
+  });
+
+  // Handle Quick Pills
+  quickPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      const qText = pill.getAttribute('data-q');
+      if (qText) {
+        sendChatMessage(qText);
+      }
+    });
+  });
+
+  // Handle Form Submit
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const qText = input.value.trim();
+    if (qText) {
+      sendChatMessage(qText);
+      input.value = '';
+    }
+  });
+
+  async function sendChatMessage(userText) {
+    // Append User Message
+    appendUserMessage(userText);
+
+    // Append Typing Indicator
+    const typingId = appendTypingIndicator();
+
+    // Get current slider and dropdown state
+    const growthSlider = document.getElementById('growthSlider');
+    const nicheSelect = document.getElementById('nicheSelect');
+    const growthVal = growthSlider ? growthSlider.value : 1.15;
+    const nicheVal = nicheSelect ? nicheSelect.value : 'ALL';
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: userText, growth: growthVal, niche: nicheVal })
+      });
+
+      const data = await res.json();
+      removeTypingIndicator(typingId);
+
+      if (data.success) {
+        appendBotMessage(data.reply, data.relatedTopics);
+      } else {
+        appendBotMessage("⚠️ Scuze, întâmpin o problemă la conectarea cu BigQuery. Încearcă din nou!");
+      }
+    } catch (err) {
+      removeTypingIndicator(typingId);
+      appendBotMessage("⚠️ Eroare de rețea. Asigură-te că serverul Node.js rulează!");
+    }
+  }
+
+  function appendUserMessage(text) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'bg-amber-500/15 border border-amber-500/30 text-amber-200 p-2.5 rounded-xl rounded-tr-none ml-6 font-medium text-xs shadow-sm';
+    msgDiv.innerText = text;
+    messagesContainer.appendChild(msgDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function appendBotMessage(markdownText, relatedTopics) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'bg-gray-800/90 border border-gray-700/80 p-3 rounded-xl rounded-tl-none mr-4 space-y-2 shadow-sm text-xs leading-relaxed text-gray-200';
+
+    // Simple markdown formatter
+    let htmlContent = markdownText
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-amber-400 font-bold">$1</strong>')
+      .replace(/• (.*?)\n/g, '<li class="ml-2 flex items-start gap-1"><span class="text-amber-400">•</span><span>$1</span></li>')
+      .replace(/\n\n/g, '<br><br>');
+
+    msgDiv.innerHTML = htmlContent;
+
+    if (relatedTopics && relatedTopics.length > 0) {
+      const topicsDiv = document.createElement('div');
+      topicsDiv.className = 'pt-2 border-t border-gray-700/60 flex flex-wrap gap-1 text-[10px] text-gray-400';
+      topicsDiv.innerHTML = '<span class="font-bold text-gray-400">Întrebări conexe:</span> ' +
+        relatedTopics.map(t => `<span class="bg-gray-900 border border-gray-700 px-2 py-0.5 rounded text-gray-300">${t}</span>`).join(' ');
+      msgDiv.appendChild(topicsDiv);
+    }
+
+    messagesContainer.appendChild(msgDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function appendTypingIndicator() {
+    const id = 'typing_' + Date.now();
+    const typingDiv = document.createElement('div');
+    typingDiv.id = id;
+    typingDiv.className = 'bg-gray-800/60 border border-gray-700/50 p-2.5 rounded-xl rounded-tl-none w-24 flex items-center gap-1.5';
+    typingDiv.innerHTML = `
+      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce delay-150"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce delay-300"></span>
+      <span class="text-[10px] text-gray-400 font-mono ml-1">BQ AI</span>
+    `;
+    messagesContainer.appendChild(typingDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    return id;
+  }
+
+  function removeTypingIndicator(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  }
+}
+
+// Initialize AI Chat widget when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  initAIChatWidget();
+});
+
+</script>
 </body>
 </html>

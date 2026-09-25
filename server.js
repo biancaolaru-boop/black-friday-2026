@@ -49,7 +49,38 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Serve static assets from both root and public
+// Explicit Static Asset Handlers
+app.get('/js/dashboard.js', (req, res) => {
+  const possibleJs = [
+    path.join(__dirname, 'public', 'js', 'dashboard.js'),
+    path.join(__dirname, 'js', 'dashboard.js'),
+    path.join(__dirname, 'dashboard.js')
+  ];
+  for (const p of possibleJs) {
+    if (fs.existsSync(p)) {
+      res.setHeader('Content-Type', 'application/javascript');
+      return res.sendFile(p);
+    }
+  }
+  res.status(200).send('// dashboard.js inlined');
+});
+
+app.get('/css/style.css', (req, res) => {
+  const possibleCss = [
+    path.join(__dirname, 'public', 'css', 'style.css'),
+    path.join(__dirname, 'css', 'style.css'),
+    path.join(__dirname, 'style.css')
+  ];
+  for (const p of possibleCss) {
+    if (fs.existsSync(p)) {
+      res.setHeader('Content-Type', 'text/css');
+      return res.sendFile(p);
+    }
+  }
+  res.status(200).send('/* style.css */');
+});
+
+// Serve static assets
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
@@ -152,7 +183,7 @@ app.post('/api/chat', (req, res) => {
   }
 });
 
-// Explicit root route serving index.html from root or public
+// Explicit root route serving index.html
 app.get('*', (req, res) => {
   const rootIndex = path.join(__dirname, 'index.html');
   const publicIndex = path.join(__dirname, 'public', 'index.html');
